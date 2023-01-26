@@ -1,4 +1,5 @@
 ![image](https://github.com/patternizer/glosat-analysis-station-validation/blob/main/tas_median_1844-04.png)
+![image](https://github.com/patternizer/glosat-analysis-station-validation/blob/main/nao.png)
 
 # glosat-analysis-station-validation
 
