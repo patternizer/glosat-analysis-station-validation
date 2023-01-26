@@ -37,8 +37,6 @@ import matplotlib.ticker as mticker
 import matplotlib.dates as mdates
 from matplotlib import colors as mcolors
 
-import seaborn as sns; sns.set()
-
 # Mapping libraries:
 import cartopy
 import cartopy.crs as ccrs
@@ -95,22 +93,26 @@ titletime = str(currentdy) + '/' + currentmn + '/' + currentyr
 
 fontsize = 10
 cmap = 'bwr'
+#cmap = 'RdBu_r'
 vmin = -6.0        
 vmax = 6.0    
+resolution = '10m' # 110, 50 or 10km
+dpi = 144 # 144,300,600
 
 year_start = 1781
 year_end = 2022
 
 filename_temp = 'DATA/df_temp_qc.pkl'        
 filename_anom = 'DATA/df_anom_qc.pkl'     
-filename_nao = 'DATA/naomonjurg.dat' # Juerg Luterbacher reconstructed NAO 1658-2021
+filename_nao1 = 'DATA/naomonjurg.dat' # Juerg Luterbacher reconstructed NAO 1658-1900
+filename_nao2 = 'DATA/nao.dat' # Phil Jones 1821-2022
 path = 'DATA/glosat-analysis-alpha-4-infilled/median_fields/'
 glosat_version = 'GloSAT.p04c.EBC.LEKnormals'
 
 use_darktheme = False
 make_gif = False
     
-projection = 'platecarree'
+projection = 'robinson'
 
 if projection == 'equalearth': p = ccrs.EqualEarth(central_longitude=0)
 if projection == 'europp': p = ccrs.EuroPP()
@@ -163,9 +165,9 @@ else:
 # CREDITS
 #----------------------------------------------------------------------------
 
-datastr1 = r'$\bf{Data}$' + ' (5x5 Gridded): GloSAT.analysis.alpha.4 (UKMO-HC/Colin Morice)'        
+datastr1 = r'$\bf{Data}$' + ' (5x5 Gridded): GloSAT.analysis.alpha.4 (UKMO-HC / Colin Morice)'        
 datastr2 = r'$\bf{Data}$' + ' (stations): GloSAT.p04c.EBC.LEKnormals (CRU/UEA)'  
-datastr3 = r'$\bf{Data}$' + ' (NAO): 1658-2001 (Juerg Luterbacher, Bern)' 
+datastr3 = r'$\bf{Data}$' + ' (NAO): 1781-1820 (Juerg Luterbacher), 1821-2022 (Phil Jones)'
 baselinestr = r'$\bf{Baseline}$' + ': 1961-1990'        
 authorstr = r'$\bf{Graphic}$' + ': Michael Taylor, CRU/UEA' + ' -- ' + titletime
 
@@ -183,11 +185,10 @@ df_anom = pd.read_pickle( filename_anom, compression='bz2' )
 
 print('loading NAO indices ...')
 
-#Year	Mon	NAO
-#1658	Dec	-0.30
-
+# LOAD: Luterbacher reconstructions 1658-1900
+     
 nheader = 26
-f = open(filename_nao)
+f = open(filename_nao1)
 lines = f.readlines()
 years = []
 months = [] 
@@ -211,11 +212,53 @@ da['year'] = years
 da['month'] = months
 da['nao'] = obs
 
-# TRIM: to start of Pandas datetime range ( if needed )
+# TRIM: to GloSAT range up to 1821 when Phil Jones' NAO dataset begins
 
-da = da[da.year >= 1678].reset_index(drop=True)
+da = da[ (da.year >= 1781) & (da.year < 1821) ].reset_index(drop=True)
 dates = [ pd.to_datetime( str(da.year[i]) + '-' + str(da.month[i]).zfill(2) + '-01', format='%Y-%m-%d' ) for i in range(len(da)) ]
-df_nao = pd.DataFrame({'nao':da.nao.values}, index=dates )
+df_nao1 = pd.DataFrame({'nao':da.nao.values}, index=dates )
+
+# LOAD: Phil Jones CRU/UEA NAO
+
+nheader = 0
+f = open(filename_nao2)
+lines = f.readlines()
+years = []
+months = []
+obs = [] 
+
+for i in range(nheader,len(lines)):
+
+    words = lines[i].split()   
+    year = int(words[0])
+
+    for j in range(1,13):
+
+        month = j
+        val = float(words[j])
+
+        years.append(year)                                     
+        months.append(month)            
+        obs.append(val)            
+
+f.close()    
+obs = np.array(obs)
+
+da = pd.DataFrame()             
+da['year'] = years
+da['month'] = months
+da['nao'] = obs
+
+dates = [ pd.to_datetime( str(da.year[i]) + '-' + str(da.month[i]).zfill(2) + '-01', format='%Y-%m-%d' ) for i in range(len(da)) ]
+df_nao2 = pd.DataFrame({'nao':da.nao.values}, index=dates )
+
+# REPLACE: fill value -99.99 with np.nan
+
+df_nao2 = df_nao2.replace(-99.99,np.nan)
+
+# MERGE: dataframes
+
+df_nao = pd.concat([df_nao1, df_nao2], ignore_index=False)
 
 #----------------------------------------------------------------------------
 # PLOT: Ensemble mean temperature anomalies
@@ -228,9 +271,15 @@ else:
 
 dec_map = np.ones([36,72]) * np.nan # initialise zero map for SSIM crossing year boundary
         
-for year in np.arange(year_start,year_end):
+# STORE: timeseries of SSIM
 
-    print(year)    
+ssim_vec = []
+
+#----------------------------------------------------------------------------
+# LOOP: over all months
+#----------------------------------------------------------------------------
+
+for year in np.arange(year_start,year_end):
 
     #----------------------------------------------------------------------------
     # LOAD: GloSAT.analysis.alpha.4
@@ -259,6 +308,14 @@ for year in np.arange(year_start,year_end):
         X = w.stationlon.values
         Y = w.stationlat.values
         Z = w[str(j+1)].values    
+
+        # FILTER: stations with no data
+
+        da = pd.DataFrame({'X':X, 'Y':Y, 'Z':Z}).dropna()
+
+        X = da.X.values
+        Y = da.Y.values
+        Z = da.Z.values
 
         # EXTRACT: NAO index
 
@@ -290,8 +347,16 @@ for year in np.arange(year_start,year_end):
             
         ssim = structural_similarity(image1, image2)
 
-        if j == (N-1): dec_map = np.array( par[j,:,:] )
-                
+        # APPEND: SSIM index
+        
+        ssim_vec.append(ssim)
+
+        if j == (N-1): dec_map = np.array( par[j,:,:] ) # temporarily store December map (for next year's January SSIM calculation)
+
+        #----------------------------------------------------------------------------
+        # PLOT: map of analysis overlaid with station points
+        #----------------------------------------------------------------------------
+                    
         titlestr = str(year) + '-' + str(j+1).zfill(2) + ' NAO=' + str(nao) + ' SSIM=' + str( np.round( ssim, 3 ) )
         figstr = 'tas_median_' + str(year) + '-' + str(j+1).zfill(2) +'.png'        
     
@@ -299,33 +364,19 @@ for year in np.arange(year_start,year_end):
         # PowerPoint:            fontsize = 18; fig = plt.figure(figsize=(13.33,7.5), dpi=144); plt.savefig('figure.png', bbox_inches='tight')
         # Posters  (vectorized): fontsize = 18; fig = plt.figure(figsize=(13.33,7.5), dpi=600); plt.savefig('my_figure.svg', bbox_inches='tight')                          
         # Journals (vectorized): fontsize = 18; fig = plt.figure(figsize=(3.54,3.54), dpi=300); plt.savefig('my_figure.svg', bbox_inches='tight')     
-    
-        # NB: for other projections we need to transform with ccrs.Geodetic()
-            
-        # g = plt.scatter(x=x, y=y, c=v, s=1, alpha=1.0, transform=p)         
-        # g = plt.contourf(x, y, v, transform=ccrs.PlateCarree(), cmap=cmap, vmin=vmin, vmax=vmax, extend='both')   
-        g = v.plot(ax=ax, transform=ccrs.PlateCarree(), vmin=vmin, vmax=vmax, cmap=cmap, cbar_kwargs={'orientation':'horizontal','extend':'both','shrink':0.5, 'pad':0.05})             
-        cb = g.colorbar; cb.ax.tick_params(labelsize=fontsize); cb.set_label(label=r'Anomaly,$^{\circ}$C', size=fontsize); cb.ax.set_title(None, fontsize=fontsize)
-    
-        h = plt.scatter(x=X, y=Y, c=Z, s=10, marker='o', edgecolor='k', lw=0.5, vmin=vmin, vmax=vmax, cmap=cmap, transform=p)         
-                                    
-        resolution = '10m' # 110, 50 or 10km
-        ax.set_global()  
-    
+                                            
         borders = cf.NaturalEarthFeature(category='cultural', name='admin_0_boundary_lines_land', scale=resolution, facecolor='none', alpha=0.7)
-    #    land = cf.NaturalEarthFeature('physical', 'land', scale=resolution, edgecolor='k', facecolor=cf.COLORS['land'])
-    #    ocean = cf.NaturalEarthFeature('physical', 'ocean', scale=resolution, edgecolor='none', facecolor=cf.COLORS['water'])
-    #    lakes = cf.NaturalEarthFeature('physical', 'lakes', scale=resolution, edgecolor='b', facecolor=cf.COLORS['water'])
-    #    rivers = cf.NaturalEarthFeature('physical', 'rivers_lake_centerlines', scale=resolution, edgecolor='b', facecolor='none')
+        land = cf.NaturalEarthFeature('physical', 'land', scale=resolution, edgecolor='k', facecolor=cf.COLORS['land'])
+        ocean = cf.NaturalEarthFeature('physical', 'ocean', scale=resolution, edgecolor='none', facecolor=cf.COLORS['water'])
+        lakes = cf.NaturalEarthFeature('physical', 'lakes', scale=resolution, edgecolor='b', facecolor=cf.COLORS['water'])
+        rivers = cf.NaturalEarthFeature('physical', 'rivers_lake_centerlines', scale=resolution, edgecolor='b', facecolor='none')
          
-    #    ax.add_feature(land, facecolor='lightgrey', linestyle='-', linewidth=0.1, edgecolor='k', alpha=0.5)
+        ax.set_global()  
+        ax.add_feature(land, facecolor='lightgrey', linestyle='-', linewidth=0.1, edgecolor='k', alpha=0.5)
     #    ax.add_feature(ocean, linestyle='-', linewidth=0.1, edgecolor='b', alpha=1 )
     #    ax.add_feature(lakes)
     #    ax.add_feature(rivers, linewidth=0.5)
         ax.add_feature(borders, linestyle='-', linewidth=0.1, edgecolor='k', alpha=1)         
-        ax.coastlines(resolution=resolution, color='k', linestyle='-', linewidth=0.2, edgecolor='k', alpha=1)                                                                              
-    
-        ax.set_title(titlestr, fontsize=fontsize)    
               
     #    gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=False, linewidth=1, color='lightgrey', alpha=1, linestyle='-')
     #    gl.top_labels = False; gl.bottom_labels = False; gl.left_ylabels = False; gl.right_ylabels = False
@@ -333,28 +384,77 @@ for year in np.arange(year_start,year_end):
     #    gl.xlocator = mticker.FixedLocator(np.linspace(-180,180,73)) # every 5 degrees
     #    gl.ylocator = mticker.FixedLocator(np.linspace(-90,90,37))   # every 5 degrees
     #    gl.xformatter = LONGITUDE_FORMATTER; gl.yformatter = LATITUDE_FORMATTER
-                                              
+
+        g = v.plot(ax=ax, transform=ccrs.PlateCarree(), vmin=vmin, vmax=vmax, cmap=cmap, cbar_kwargs={'orientation':'horizontal','extend':'both','shrink':0.5, 'pad':0.05})             
+        cb = g.colorbar; cb.ax.tick_params(labelsize=fontsize); cb.set_label(label=r'Anomaly,$^{\circ}$C', size=fontsize); cb.ax.set_title(None, fontsize=fontsize)
+    
+        h = plt.scatter(x=X, y=Y, c=Z, s=10, marker='o', edgecolor='k', lw=0.5, vmin=vmin, vmax=vmax, cmap=cmap, transform=ccrs.PlateCarree())         
+  
+        ax.coastlines(resolution=resolution, color='k', linestyle='-', linewidth=0.2, edgecolor='k', alpha=1)                                                                                  
+        ax.add_feature(borders, linestyle='-', linewidth=0.1, edgecolor='k', alpha=1)         
+        ax.set_title(titlestr, fontsize=fontsize)    
+                                            
     #   fig.suptitle(titlestr, fontsize=36, color=default_color, fontweight='bold')        
-        plt.annotate(datastr1, xy=(300,120), xycoords='figure pixels', color=default_color, fontsize=10) 
-        plt.annotate(datastr2, xy=(300,100), xycoords='figure pixels', color=default_color, fontsize=10) 
-        plt.annotate(datastr3, xy=(300,80), xycoords='figure pixels', color=default_color, fontsize=10) 
-        plt.annotate(baselinestr, xy=(300,60), xycoords='figure pixels', color=default_color, fontsize=10)   
-        plt.annotate(authorstr, xy=(300,40), xycoords='figure pixels', color=default_color, fontsize=10)     
+        plt.annotate(datastr1, xy=(350,100), xycoords='figure pixels', color=default_color, fontsize=10) 
+        plt.annotate(datastr2, xy=(350,80), xycoords='figure pixels', color=default_color, fontsize=10) 
+        plt.annotate(datastr3, xy=(350,60), xycoords='figure pixels', color=default_color, fontsize=10) 
+        plt.annotate(baselinestr, xy=(350,40), xycoords='figure pixels', color=default_color, fontsize=10)   
+        plt.annotate(authorstr, xy=(350,20), xycoords='figure pixels', color=default_color, fontsize=10)     
     
         fig.subplots_adjust(left=None, bottom=None, right=None, top=None, wspace=None, hspace=None)
-    #   plt.savefig(figstr, bbox_inches='tight')
-        plt.savefig(figstr, dpi=144)
+        plt.savefig(figstr, dpi=dpi, bbox_inches='tight')
+        plt.clf()
+        plt.cla()
         plt.close()
 
+# SAVE: NAO timeseries
 
-#if make_gif == True:
+df_nao.to_pickle( 'df_nao.pkl', compression='bz2' )
 
-#    images = sorted(glob.glob('*.png'))
-#    var = [imageio.imread(file) for file in images]
-#    imageio.mimsave('plot.gif', var, fps = 10)
+# SAVE: SSIM timeseries
+    
+t_vec = pd.date_range(start=str(year_start), end=str(year_end), freq='MS' )[0:-1]
+df_ssim = pd.DataFrame({'ssim':ssim_vec}, index=t_vec)
+df_ssim.to_pickle( 'df_ssim.pkl', compression='bz2' )
 
-# COVERT GIF to MP4
-# ffmpeg -i plot.gif -movflags faststart -pix_fmt yuv420p -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" plot.mp4
+#----------------------------------------------------------------------------
+# PLOT: SSIM timerseries
+#----------------------------------------------------------------------------
+
+# RESET: plot vars
+
+fontsize = 16
+import seaborn as sns; sns.set()
+
+figstr = 'ssim.png'
+titlestr = 'GloSAT.analysis.alpha.4: SSIM(t-1,t)'
+                        
+fig, ax = plt.subplots(figsize=(15,10))     
+plt.plot( df_ssim.index, df_ssim.ssim, marker='o', ls='-', lw=0.5)
+plt.ylim(0,1)
+plt.tick_params(labelsize=fontsize)    
+plt.ylabel('SSIM(t)', fontsize=fontsize)
+plt.title(titlestr, fontsize=fontsize)
+plt.savefig(figstr, dpi=dpi, bbox_inches='tight')
+plt.close('all')
+
+#----------------------------------------------------------------------------
+# PLOT: NAO timerseries
+#----------------------------------------------------------------------------
+
+figstr = 'nao.png'
+titlestr = 'Merged NAO: 1781-1820 (Juerg Luterbacher), 1821-2022 (Phil Jones)'
+                        
+fig, ax = plt.subplots(figsize=(15,10))     
+plt.plot( df_nao1.index, df_nao1.nao, marker='o', ls='-', lw=0.5, color='red', label='NAO: 1781-1820 (Juerg Luterbacher)')
+plt.plot( df_nao2.index, df_nao2.nao, marker='o', ls='-', lw=0.5, color='green', label='NAO: 1821-2022 (Phil Jones)')
+plt.ylim(-7,7)
+plt.legend(loc='upper left', fontsize=fontsize)    
+plt.tick_params(labelsize=fontsize)    
+plt.ylabel('NAO(t)', fontsize=fontsize)
+plt.title(titlestr, fontsize=fontsize)
+plt.savefig(figstr, dpi=dpi, bbox_inches='tight')
+plt.close('all')
 
 # -----------------------------------------------------------------------------
 print('** END')
