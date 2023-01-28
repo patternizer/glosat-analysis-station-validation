@@ -1,9 +1,9 @@
 #! /usr/bin python
 
 #------------------------------------------------------------------------------
-# PROGRAM: plot_glosat_analysis_vs_stations.py
+# PROGRAM: plot_glosat_analysis_vs_stations_yearly_mean.py
 #------------------------------------------------------------------------------
-# Version 0.4
+# Version 0.1
 # 27 January, 2023
 # Michael Taylor
 # michael DOT a DOT taylor AT uea DOT ac DOT uk 
@@ -61,24 +61,6 @@ print("cartopy   : ", cartopy.__version__)
 
 # %matplotlib inline # for Jupyter Notebooks
 
-'''
-# Calculate current time 
-
-now = datetime.now()
-currentmn = str(now.month)
-if now.day == 1:
-    currentdy = str(cal.monthrange(now.year,now.month-1)[1])
-    currentmn = str(now.month-1)
-else:
-    currentdy = str(now.day-1)
-if int(currentdy) < 10:
-    currentdy = '0' + currentdy    
-currentyr = str(now.year)
-if int(currentmn) < 10:
-    currentmn = '0' + currentmn
-titletime = str(currentdy) + '/' + currentmn + '/' + currentyr
-'''
-
 # Calculate current time
 
 now = datetime.now()
@@ -110,7 +92,6 @@ path = 'DATA/glosat-analysis-alpha-4-infilled/median_fields/'
 glosat_version = 'GloSAT.p04c.EBC.LEKnormals'
 
 use_darktheme = False
-make_gif = False
     
 projection = 'robinson'
 
@@ -287,13 +268,13 @@ if use_darktheme == True:
 else:
 	default_color = 'black'               
 
-dec_map = np.ones([36,72]) * np.nan # initialise zero map for SSIM crossing year boundary
+last_map = np.ones([36,72]) * np.nan # initialise zero map for SSIM crossing year boundary
         
 # STORE: timeseries of SSIM and analysis grid counts
 
+nao_vec = []
 ssim_vec = []
-n_analysis_vec = []
-n_stations_vec = []
+n_vec = []
 
 #----------------------------------------------------------------------------
 # LOOP: over all months
@@ -313,148 +294,130 @@ for year in np.arange(year_start,year_end):
     lat = ds.latitude
     time = ds.time
     
-    N = par.shape[0]
+    # EXTRACT: analysis 5x5 gridded anomaly background yearly mean (weighted by month)
+
+    v = weighted_temporal_mean(ds, 'tas_median')[0,:,:]     
+    x, y = np.meshgrid(lon,lat)        
+    		
+    count = int(np.isfinite(v).sum())
+    		    
+    # EXTRACT: station anomalies and compute yearly mean
         
-    for j in range(N):
-            
-        # EXTRACT: analysis 5x5 gridded anomaly background
- 
-        v = par[j,:,:]
-        x, y = np.meshgrid(lon,lat)        
-    		    		    
-        # EXTRACT: station anomalies
-        
-        w = df_anom[ df_anom['year'] == year ]
-        X = w.stationlon.values
-        Y = w.stationlat.values
-        Z = w[str(j+1)].values    
-        
-        # FILTER: stations with no data
+    w = df_anom[ df_anom['year'] == year ]
+    X = w.stationlon.values
+    Y = w.stationlat.values
+    Z = np.nanmean( np.array(w.iloc[:,1:13]), axis=1 )
 
-        da = pd.DataFrame({'X':X, 'Y':Y, 'Z':Z}).dropna()
+    # FILTER: stations with no data
 
-        X = da.X.values
-        Y = da.Y.values
-        Z = da.Z.values
+    da = pd.DataFrame({'X':X, 'Y':Y, 'Z':Z}).dropna()
 
-        # COUNT: contributing analysis gridcells and stations
-        
-        count_analysis = int(np.isfinite(v).sum())
-        count_stations = len(Z)
+    X = da.X.values
+    Y = da.Y.values
+    Z = da.Z.values
 
-        # EXTRACT: NAO index
+    # EXTRACT: NAO index yearly mean
 
-        nao = df_nao[df_nao.index.year==year].values.ravel()[j]
-
-        # CORRELATE: with previous month
+    nao = np.nanmean( df_nao[df_nao.index.year==year].values.ravel() )
+    
+    # CORRELATE: with previous year
                 
-        if j == 0:
-
-            map1 = dec_map
-            map2 = np.array( par[j,:,:] )
+    map1 = last_map
+    map2 = np.array( v )
             
-        else:
+    # CATER: for first map having no prior map (December previous year) to correlate against
 
-            map1 = np.array( par[j-1,:,:] )
-            map2 = np.array( par[j,:,:] )
+    if np.nansum(map1) == 0.0:    
 
-        # CATER: for first map having no prior map (December previous year) to correlate against
-
-        if np.nansum(map1) == 0.0:    
-
-            image1 = map1
-            image2 = np.nan_to_num(map2, copy=True, nan=0.0, posinf=None, neginf=None)
+        image1 = map1
+        image2 = np.nan_to_num(map2, copy=True, nan=0.0, posinf=None, neginf=None)
         
-        else:
+    else:
 
-            image1 = np.nan_to_num(map1, copy=True, nan=0.0, posinf=None, neginf=None)
-            image2 = np.nan_to_num(map2, copy=True, nan=0.0, posinf=None, neginf=None)
+        image1 = np.nan_to_num(map1, copy=True, nan=0.0, posinf=None, neginf=None)
+        image2 = np.nan_to_num(map2, copy=True, nan=0.0, posinf=None, neginf=None)
             
-        ssim = structural_similarity(image1, image2)
+    ssim = structural_similarity(image1, image2)
 
-        # APPEND: SSIM index and analysis counts
+    # APPEND: NAO, SSIM and analysis count yearly_mean
         
-        ssim_vec.append(ssim)
-        n_analysis_vec.append(count_analysis)
-        n_stations_vec.append(count_stations)
+    nao_vec.append(nao)
+    ssim_vec.append(ssim)
+    n_vec.append(count)
 
-        if j == (N-1): dec_map = np.array( par[j,:,:] ) # temporarily store December map (for next year's January SSIM calculation)
+    last_map = np.array( v ) # temporarily store map (for next year's SSIM calculation)
 
-        #----------------------------------------------------------------------------
-        # PLOT: map of analysis overlaid with station points
-        #----------------------------------------------------------------------------
+    #----------------------------------------------------------------------------
+    # PLOT: map of analysis overlaid with station points
+    #----------------------------------------------------------------------------
                     
-        titlestr = str(year) + '-' + str(j+1).zfill(2) + ' NAO=' + str( np.round( nao, 3 ) ) + ' SSIM=' + str( np.round( ssim, 3 ) ) + ' N(analysis)=' + str(count_analysis) + '/' + str(36*72) + ' N(stations)=' + str( count_stations ) + '/' + str(11865) 
-        figstr = 'tas_median_' + str(year) + '-' + str(j+1).zfill(2) +'.png'        
+    titlestr = str(year) + ' NAO=' + str( np.round( nao, 3 ) ) + ' SSIM=' + str( np.round( ssim, 3 ) ) + ' N=' + str(count) + '/' + str(36*72)
+    figstr = 'yearly_mean_tas_median_' + str(year) + '.png'        
     
-        fig, ax = plt.subplots(figsize=(13.33,7.5), subplot_kw=dict(projection=p))    
-        # PowerPoint:            fontsize = 18; fig = plt.figure(figsize=(13.33,7.5), dpi=144); plt.savefig('figure.png', bbox_inches='tight')
-        # Posters  (vectorized): fontsize = 18; fig = plt.figure(figsize=(13.33,7.5), dpi=600); plt.savefig('my_figure.svg', bbox_inches='tight')                          
-        # Journals (vectorized): fontsize = 18; fig = plt.figure(figsize=(3.54,3.54), dpi=300); plt.savefig('my_figure.svg', bbox_inches='tight')     
+    fig, ax = plt.subplots(figsize=(13.33,7.5), subplot_kw=dict(projection=p))    
+    # PowerPoint:            fontsize = 18; fig = plt.figure(figsize=(13.33,7.5), dpi=144); plt.savefig('figure.png', bbox_inches='tight')
+    # Posters  (vectorized): fontsize = 18; fig = plt.figure(figsize=(13.33,7.5), dpi=600); plt.savefig('my_figure.svg', bbox_inches='tight')                          
+    # Journals (vectorized): fontsize = 18; fig = plt.figure(figsize=(3.54,3.54), dpi=300); plt.savefig('my_figure.svg', bbox_inches='tight')     
                                             
-        borders = cf.NaturalEarthFeature(category='cultural', name='admin_0_boundary_lines_land', scale=resolution, facecolor='none', alpha=0.7)
-        land = cf.NaturalEarthFeature('physical', 'land', scale=resolution, edgecolor='k', facecolor=cf.COLORS['land'])
-        ocean = cf.NaturalEarthFeature('physical', 'ocean', scale=resolution, edgecolor='none', facecolor=cf.COLORS['water'])
-        lakes = cf.NaturalEarthFeature('physical', 'lakes', scale=resolution, edgecolor='b', facecolor=cf.COLORS['water'])
-        rivers = cf.NaturalEarthFeature('physical', 'rivers_lake_centerlines', scale=resolution, edgecolor='b', facecolor='none')
+    borders = cf.NaturalEarthFeature(category='cultural', name='admin_0_boundary_lines_land', scale=resolution, facecolor='none', alpha=0.7)
+    land = cf.NaturalEarthFeature('physical', 'land', scale=resolution, edgecolor='k', facecolor=cf.COLORS['land'])
+    ocean = cf.NaturalEarthFeature('physical', 'ocean', scale=resolution, edgecolor='none', facecolor=cf.COLORS['water'])
+    lakes = cf.NaturalEarthFeature('physical', 'lakes', scale=resolution, edgecolor='b', facecolor=cf.COLORS['water'])
+    rivers = cf.NaturalEarthFeature('physical', 'rivers_lake_centerlines', scale=resolution, edgecolor='b', facecolor='none')
          
-        ax.set_global()  
-        ax.add_feature(land, facecolor='grey', linestyle='-', linewidth=0.1, edgecolor='k', alpha=0.5)
-        ax.add_feature(ocean, facecolor='cyan', alpha=0.5)
-    #    ax.add_feature(lakes)
-    #    ax.add_feature(rivers, linewidth=0.5)
-        ax.add_feature(borders, linestyle='-', linewidth=0.1, edgecolor='k', alpha=1)         
+    ax.set_global()  
+    ax.add_feature(land, facecolor='grey', linestyle='-', linewidth=0.1, edgecolor='k', alpha=0.5)
+    ax.add_feature(ocean, facecolor='cyan', alpha=0.5)
+    # ax.add_feature(lakes)
+    # ax.add_feature(rivers, linewidth=0.5)
+    ax.add_feature(borders, linestyle='-', linewidth=0.1, edgecolor='k', alpha=1)         
               
-    #    gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=False, linewidth=1, color='lightgrey', alpha=1, linestyle='-')
-    #    gl.top_labels = False; gl.bottom_labels = False; gl.left_ylabels = False; gl.right_ylabels = False
-    #    gl.xlines = True; gl.ylines = True
-    #    gl.xlocator = mticker.FixedLocator(np.linspace(-180,180,73)) # every 5 degrees
-    #    gl.ylocator = mticker.FixedLocator(np.linspace(-90,90,37))   # every 5 degrees
-    #    gl.xformatter = LONGITUDE_FORMATTER; gl.yformatter = LATITUDE_FORMATTER
+    # gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=False, linewidth=1, color='lightgrey', alpha=1, linestyle='-')
+    # gl.top_labels = False; gl.bottom_labels = False; gl.left_ylabels = False; gl.right_ylabels = False
+    # gl.xlines = True; gl.ylines = True
+    # gl.xlocator = mticker.FixedLocator(np.linspace(-180,180,73)) # every 5 degrees
+    # gl.ylocator = mticker.FixedLocator(np.linspace(-90,90,37))   # every 5 degrees
+    # gl.xformatter = LONGITUDE_FORMATTER; gl.yformatter = LATITUDE_FORMATTER
 
-        g = v.plot(ax=ax, transform=ccrs.PlateCarree(), vmin=vmin, vmax=vmax, cmap=cmap, cbar_kwargs={'orientation':'horizontal','extend':'both','shrink':0.5, 'pad':0.05})             
-        cb = g.colorbar; cb.ax.tick_params(labelsize=fontsize); cb.set_label(label=r'Anomaly,$^{\circ}$C', size=fontsize); cb.ax.set_title(None, fontsize=fontsize)
+    g = v.plot(ax=ax, transform=ccrs.PlateCarree(), vmin=vmin, vmax=vmax, cmap=cmap, cbar_kwargs={'orientation':'horizontal','extend':'both','shrink':0.5, 'pad':0.05})             
+    cb = g.colorbar; cb.ax.tick_params(labelsize=fontsize); cb.set_label(label=r'Anomaly,$^{\circ}$C', size=fontsize); cb.ax.set_title(None, fontsize=fontsize)
     
-        h = plt.scatter(x=X, y=Y, c=Z, s=10, marker='o', edgecolor='k', lw=0.5, vmin=vmin, vmax=vmax, cmap=cmap, transform=ccrs.PlateCarree())         
+    h = plt.scatter(x=X, y=Y, c=Z, s=10, marker='o', edgecolor='k', lw=0.5, vmin=vmin, vmax=vmax, cmap=cmap, transform=ccrs.PlateCarree())         
   
-        ax.coastlines(resolution=resolution, color='k', linestyle='-', linewidth=0.2, edgecolor='k', alpha=1)                                                                                  
-        ax.add_feature(borders, linestyle='-', linewidth=0.1, edgecolor='k', alpha=1)         
-        ax.set_title(titlestr, fontsize=fontsize)    
+    ax.coastlines(resolution=resolution, color='k', linestyle='-', linewidth=0.2, edgecolor='k', alpha=1)                                                                                  
+    ax.add_feature(borders, linestyle='-', linewidth=0.1, edgecolor='k', alpha=1)         
+    ax.set_title(titlestr, fontsize=fontsize)    
                                             
-    #   fig.suptitle(titlestr, fontsize=36, color=default_color, fontweight='bold')        
-        plt.annotate(datastr1, xy=(350,100), xycoords='figure pixels', color=default_color, fontsize=10) 
-        plt.annotate(datastr2, xy=(350,80), xycoords='figure pixels', color=default_color, fontsize=10) 
-        plt.annotate(datastr3, xy=(350,60), xycoords='figure pixels', color=default_color, fontsize=10) 
-        plt.annotate(baselinestr, xy=(350,40), xycoords='figure pixels', color=default_color, fontsize=10)   
-        plt.annotate(authorstr, xy=(350,20), xycoords='figure pixels', color=default_color, fontsize=10)     
+    # fig.suptitle(titlestr, fontsize=36, color=default_color, fontweight='bold')        
+    plt.annotate(datastr1, xy=(350,100), xycoords='figure pixels', color=default_color, fontsize=10) 
+    plt.annotate(datastr2, xy=(350,80), xycoords='figure pixels', color=default_color, fontsize=10) 
+    plt.annotate(datastr3, xy=(350,60), xycoords='figure pixels', color=default_color, fontsize=10) 
+    plt.annotate(baselinestr, xy=(350,40), xycoords='figure pixels', color=default_color, fontsize=10)   
+    plt.annotate(authorstr, xy=(350,20), xycoords='figure pixels', color=default_color, fontsize=10)     
     
-        fig.subplots_adjust(left=None, bottom=None, right=None, top=None, wspace=None, hspace=None)
-        plt.savefig(figstr, dpi=dpi, bbox_inches='tight')
-        plt.clf()
-        plt.cla()
-        plt.close()
+    fig.subplots_adjust(left=None, bottom=None, right=None, top=None, wspace=None, hspace=None)
+    plt.savefig(figstr, dpi=dpi, bbox_inches='tight')
+    plt.clf()
+    plt.cla()
+    plt.close()
 
-# SAVE: NAO timeseries
+# SAVE: NAO yearly mean timeseries
 
-df_nao.to_pickle( 'df_nao.pkl', compression='bz2' )
+t_vec = pd.date_range(start=str(year_start), end=str(year_end), freq='AS' )[0:-1]
+df_nao = pd.DataFrame({'nao':nao_vec}, index=t_vec)
+df_nao.to_pickle( 'df_nao_yearly_mean.pkl', compression='bz2' )
 
-# SAVE: SSIM timeseries
+# SAVE: SSIM yearly mean timeseries
     
-t_vec = pd.date_range(start=str(year_start), end=str(year_end), freq='MS' )[0:-1]
+t_vec = pd.date_range(start=str(year_start), end=str(year_end), freq='AS' )[0:-1]
 df_ssim = pd.DataFrame({'ssim':ssim_vec}, index=t_vec)
-df_ssim.to_pickle( 'df_ssim.pkl', compression='bz2' )
+df_ssim.to_pickle( 'df_ssim_yearly_mean.pkl', compression='bz2' )
 
-# SAVE: analysis count timeseries
+# SAVE: COUNT yearly mean timeseries
     
-t_vec = pd.date_range(start=str(year_start), end=str(year_end), freq='MS' )[0:-1]
-df_count_analysis = pd.DataFrame({'count':n_analysis_vec}, index=t_vec)
-df_count_analysis.to_pickle( 'df_count_analysis.pkl', compression='bz2' )
-
-# SAVE: station count timeseries
-    
-t_vec = pd.date_range(start=str(year_start), end=str(year_end), freq='MS' )[0:-1]
-df_count_stations = pd.DataFrame({'count':n_stations_vec}, index=t_vec)
-df_count_stations.to_pickle( 'df_count_stations.pkl', compression='bz2' )
+t_vec = pd.date_range(start=str(year_start), end=str(year_end), freq='AS' )[0:-1]
+df_count = pd.DataFrame({'count':n_vec}, index=t_vec)
+df_count.to_pickle( 'df_count_yearly_mean.pkl', compression='bz2' )
 
 #----------------------------------------------------------------------------
 # PLOT: SSIM & count timerseries
@@ -465,24 +428,28 @@ df_count_stations.to_pickle( 'df_count_stations.pkl', compression='bz2' )
 fontsize = 16
 import seaborn as sns; sns.set()
 
-figstr = 'ssim_count.png'
-titlestr = 'GloSAT.analysis.alpha.4: SSIM(t-1,t) and Coverage(t)'
+figstr = 'ssim_count_yearly_mean.png'
+titlestr = 'GloSAT.analysis.alpha.4: SSIM(t-1,t) and Coverage(t) yearly mean'
                         
 fig, ax = plt.subplots(figsize=(15,10))     
 plt.plot( df_ssim.index, df_ssim.ssim, marker='o', ls='-', lw=0.5, color='blue')
+
 ax1 = plt.gca()
 ax2 = ax.twinx()
-ax2.plot( df_count_analysis.index, df_count_analysis['count']/2592, marker='o', ls='-', lw=0.5, color='red', label='GloSAT analysis')
-ax2.plot( df_count_stations.index, df_count_stations['count']/11865, marker='s', markerfacecolor='none', ls='--', lw=0.5, color='red', label='GloSAT stations')
+ax2.plot( df_count.index, (1.0 - df_count['count']/2592), marker='o', ls='-', lw=0.5, color='red')
+#ax1.set_xlabel('Year', fontsize=fontsize)
 ax1.set_ylabel('SSIM(t-1,t)', fontsize=fontsize, color='blue')
+#ax1.yaxis.grid(False, which='major')      
+#ax1.xaxis.grid(False, which='major')      
 ax1.tick_params(labelsize=fontsize, color='blue')    
-ax1.set_ylim(0,1)
 ax2.spines['left'].set_color('blue')
-ax2.set_ylabel('Coverage(t)', fontsize=fontsize, color='red')
+ax1.set_ylim(0,1)
+ax2.set_ylabel('1.0 - Coverage(t)', fontsize=fontsize, color='red')
+#ax1.yaxis.grid(False, which='major')      
+#ax1.xaxis.grid(False, which='major')      
 ax2.tick_params(labelsize=fontsize, colors='red')    
 ax2.spines['right'].set_color('red')
 ax2.set_ylim(0,1)
-ax2.legend(loc='lower right', fontsize=fontsize)
 plt.title(titlestr, fontsize=fontsize)
 plt.savefig(figstr, dpi=dpi, bbox_inches='tight')
 plt.close('all')
@@ -491,13 +458,17 @@ plt.close('all')
 # PLOT: NAO timerseries
 #----------------------------------------------------------------------------
 
-figstr = 'nao.png'
-titlestr = 'Merged NAO: 1781-1820 (Juerg Luterbacher), 1821-2022 (Phil Jones)'
+figstr = 'nao_yearly_mean.png'
+titlestr = 'Merged NAO: 1781-1820 (Juerg Luterbacher), 1821-2022 (Phil Jones): yearly mean'
                         
 fig, ax = plt.subplots(figsize=(15,10))     
-plt.plot( df_nao1.index, df_nao1.nao, marker='o', ls='-', lw=0.5, color='red', label='NAO: 1781-1820 (Juerg Luterbacher)')
-plt.plot( df_nao2.index, df_nao2.nao, marker='o', ls='-', lw=0.5, color='green', label='NAO: 1821-2022 (Phil Jones)')
-plt.ylim(-7,7)
+
+#plt.plot( df_nao[df_nao.index.year<1821].index, df_nao[df_nao.index.year<1821].nao, marker='o', ls='-', lw=0.5, color='red', label='NAO: 1781-1820 (Juerg Luterbacher)')
+#plt.plot( df_nao[df_nao.index.year>=1821].index, df_nao[df_nao.index.year>=1821].nao, marker='o', ls='-', lw=0.5, color='green', label='NAO: 1821-2022 (Phil Jones)')
+
+plt.fill_between( df_nao[df_nao.index.year<1821].index, df_nao[df_nao.index.year<1821].nao, ls='-', lw=0.5, color='red', label='NAO: 1781-1820 (Juerg Luterbacher)')
+plt.fill_between( df_nao[df_nao.index.year>=1821].index, df_nao[df_nao.index.year>=1821].nao, ls='-', lw=0.5, color='green', label='NAO: 1821-2022 (Phil Jones)')
+plt.ylim(-3,3)
 plt.legend(loc='upper left', fontsize=fontsize)    
 plt.tick_params(labelsize=fontsize)    
 plt.ylabel('NAO(t)', fontsize=fontsize)
