@@ -1,5 +1,5 @@
 ![image](https://github.com/patternizer/glosat-analysis-station-validation/blob/main/tas_median_1848-07.png)
-![image](https://github.com/patternizer/glosat-analysis-station-validation/blob/main/nao.png)
+![image](https://github.com/patternizer/glosat-analysis-station-validation/blob/main/nao_yearly_mean.png)
 ![image](https://github.com/patternizer/glosat-analysis-station-validation/blob/main/ssim.png)
 
 # glosat-analysis-station-validation
