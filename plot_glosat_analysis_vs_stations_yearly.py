@@ -3,24 +3,20 @@
 #------------------------------------------------------------------------------
 # PROGRAM: plot_glosat_analysis_vs_stations_yearly_mean.py
 #------------------------------------------------------------------------------
-# Version 0.1
-# 27 January, 2023
+# Version 0.2
+# 31 January, 2023
 # Michael Taylor
 # michael DOT a DOT taylor AT uea DOT ac DOT uk 
 #------------------------------------------------------------------------------
 
-import os, glob
-import imageio
 import numpy as np
 import numpy.ma as ma
 import pandas as pd
 import xarray as xr
 import pickle
 from datetime import datetime
-import calendar as cal
 
 # Statisticslibraries:
-from scipy import signal
 from skimage.metrics import structural_similarity
 
 # Plotting libraries:
@@ -36,6 +32,7 @@ register_matplotlib_converters()
 import matplotlib.ticker as mticker
 import matplotlib.dates as mdates
 from matplotlib import colors as mcolors
+# %matplotlib inline # for Jupyter Notebooks
 
 # Mapping libraries:
 import cartopy
@@ -53,13 +50,6 @@ warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", message="numpy.dtype size changed")
 warnings.filterwarnings("ignore", message="numpy.ufunc size changed")
-
-print("numpy   : ", np.__version__) 
-print("xarray   : ", xr.__version__)
-print("matplotlib   : ", matplotlib.__version__)
-print("cartopy   : ", cartopy.__version__)
-
-# %matplotlib inline # for Jupyter Notebooks
 
 # Calculate current time
 
@@ -79,19 +69,15 @@ cmap = 'bwr'
 vmin = -6.0        
 vmax = 6.0    
 resolution = '10m' # 110, 50 or 10km
-dpi = 144 # 144,300,600
+dpi = 600 # 144,300,600
 
 year_start = 1781
 year_end = 2022
 
-filename_temp = 'DATA/df_temp_qc.pkl'        
 filename_anom = 'DATA/df_anom_qc.pkl'     
-filename_nao1 = 'DATA/naomonjurg.dat' # Juerg Luterbacher reconstructed NAO 1658-1900
-filename_nao2 = 'DATA/nao.dat' # Phil Jones 1821-2022
+filename_nao = 'DATA/df_nao_1781_2022.pkl' 
 path = 'DATA/glosat-analysis-alpha-4-infilled/median_fields/'
 glosat_version = 'GloSAT.p04c.EBC.LEKnormals'
-
-use_darktheme = False
     
 projection = 'robinson'
 
@@ -106,7 +92,13 @@ if projection == 'orthographic': p = ccrs.Orthographic(0,0)
 if projection == 'platecarree': p = ccrs.PlateCarree(central_longitude=0)
 if projection == 'robinson': p = ccrs.Robinson(central_longitude=0)
 if projection == 'southpolarstereo': p = ccrs.SouthPolarStereo()    
-    
+
+use_darktheme = False
+if use_darktheme == True:
+	default_color = 'white'
+else:
+	default_color = 'black'         
+
 #------------------------------------------------------------------------------
 # THEME
 #------------------------------------------------------------------------------
@@ -114,6 +106,7 @@ if projection == 'southpolarstereo': p = ccrs.SouthPolarStereo()
 if use_darktheme == True:
 	
     matplotlib.rcParams['text.usetex'] = False
+    rcParams['font.family'] = ['Lato']
 #    rcParams['font.family'] = ['DejaVu Sans']
 #    rcParams['font.sans-serif'] = ['Avant Garde']
     plt.rc('text',color='white')
@@ -133,6 +126,7 @@ if use_darktheme == True:
 else:
 
     matplotlib.rcParams['text.usetex'] = True
+    rcParams['font.family'] = ['Lato']
 #    rcParams['font.family'] = ['DejaVu Sans']
 #    rcParams['font.sans-serif'] = ['Avant Garde']
     plt.rc('savefig',facecolor='white')
@@ -174,7 +168,8 @@ def weighted_temporal_mean(ds, var):
 # LOAD: GloSAT anomalies
 #----------------------------------------------------------------------------
 
-df_temp = pd.read_pickle( filename_temp, compression='bz2' ) 
+print('loading station anomalies ...')
+
 df_anom = pd.read_pickle( filename_anom, compression='bz2' ) 
 
 #------------------------------------------------------------------------------    
@@ -184,108 +179,30 @@ df_anom = pd.read_pickle( filename_anom, compression='bz2' )
 
 print('loading NAO indices ...')
 
-# LOAD: Luterbacher reconstructions 1658-1900
+# LOAD: merged pkl dataframe of monthly NAO: Luterbacher reconstructions 1658-1821 and Phil Jones 1821-2022
      
-nheader = 26
-f = open(filename_nao1)
-lines = f.readlines()
-years = []
-months = [] 
-obs = []
-
-month_dict = {'Jan':1,'Feb':2,'Mar':3,'Apr':4,'May':5,'Jun':6,'Jul':7,'Aug':8,'Sep':9,'Oct':10,'Nov':11,'Dec':12}
-
-for i in range(nheader,len(lines)):
-    words = lines[i].split()   
-    year = int(words[0])
-    month = month_dict[ words[1] ]
-    val = float(words[2])
-    years.append(year)                                     
-    months.append(month)            
-    obs.append(val)            
-f.close()    
-obs = np.array(obs)
-
-da = pd.DataFrame()             
-da['year'] = years
-da['month'] = months
-da['nao'] = obs
-
-# TRIM: to GloSAT range up to 1821 when Phil Jones' NAO dataset begins
-
-da = da[ (da.year >= 1781) & (da.year < 1821) ].reset_index(drop=True)
-dates = [ pd.to_datetime( str(da.year[i]) + '-' + str(da.month[i]).zfill(2) + '-01', format='%Y-%m-%d' ) for i in range(len(da)) ]
-df_nao1 = pd.DataFrame({'nao':da.nao.values}, index=dates )
-
-# LOAD: Phil Jones CRU/UEA NAO
-
-nheader = 0
-f = open(filename_nao2)
-lines = f.readlines()
-years = []
-months = []
-obs = [] 
-
-for i in range(nheader,len(lines)):
-
-    words = lines[i].split()   
-    year = int(words[0])
-
-    for j in range(1,13):
-
-        month = j
-        val = float(words[j])
-
-        years.append(year)                                     
-        months.append(month)            
-        obs.append(val)            
-
-f.close()    
-obs = np.array(obs)
-
-da = pd.DataFrame()             
-da['year'] = years
-da['month'] = months
-da['nao'] = obs
-
-dates = [ pd.to_datetime( str(da.year[i]) + '-' + str(da.month[i]).zfill(2) + '-01', format='%Y-%m-%d' ) for i in range(len(da)) ]
-df_nao2 = pd.DataFrame({'nao':da.nao.values}, index=dates )
-
-# REPLACE: fill value -99.99 with np.nan
-
-df_nao2 = df_nao2.replace(-99.99,np.nan)
-
-# MERGE: dataframes
-
-df_nao = pd.concat([df_nao1, df_nao2], ignore_index=False)
-
+df_nao = pd.read_pickle( filename_nao, compression='bz2' ) 
+                  
 #----------------------------------------------------------------------------
-# PLOT: Ensemble mean temperature anomalies
+# INITIALISE: arrays to store timeseries of NAO, SSIM and analysis grid counts
 #----------------------------------------------------------------------------
-
-if use_darktheme == True:
-	default_color = 'white'
-else:
-	default_color = 'black'               
 
 last_map = np.ones([36,72]) * np.nan # initialise zero map for SSIM crossing year boundary
-        
-# STORE: timeseries of SSIM and analysis grid counts
 
 nao_vec = []
 ssim_vec = []
 n_vec = []
 
 #----------------------------------------------------------------------------
-# LOOP: over all months
+# LOOP: over years
 #----------------------------------------------------------------------------
 
 for year in np.arange(year_start,year_end):
 
-    #----------------------------------------------------------------------------
-    # LOAD: GloSAT.analysis.alpha.4
-    #----------------------------------------------------------------------------
+    # LOAD: GloSAT.analysis.alpha.4 for a given year
     
+    print('loading analysis for year=' + str(year) + ' ...')
+
     ncfile = path + 'GloSATref.1.0.0.0-alpha.4.analysis.analysis.anomalies.ensemble_median.' + str(year) + '.nc'
     
     ds = xr.open_dataset(ncfile, decode_cf=True)
@@ -359,41 +276,46 @@ for year in np.arange(year_start,year_end):
     # Posters  (vectorized): fontsize = 18; fig = plt.figure(figsize=(13.33,7.5), dpi=600); plt.savefig('my_figure.svg', bbox_inches='tight')                          
     # Journals (vectorized): fontsize = 18; fig = plt.figure(figsize=(3.54,3.54), dpi=300); plt.savefig('my_figure.svg', bbox_inches='tight')     
                                             
-    borders = cf.NaturalEarthFeature(category='cultural', name='admin_0_boundary_lines_land', scale=resolution, facecolor='none', alpha=0.7)
+    borders = cf.NaturalEarthFeature(category='cultural', name='admin_0_boundary_lines_land', scale=resolution, facecolor='none', alpha=1)
     land = cf.NaturalEarthFeature('physical', 'land', scale=resolution, edgecolor='k', facecolor=cf.COLORS['land'])
     ocean = cf.NaturalEarthFeature('physical', 'ocean', scale=resolution, edgecolor='none', facecolor=cf.COLORS['water'])
     lakes = cf.NaturalEarthFeature('physical', 'lakes', scale=resolution, edgecolor='b', facecolor=cf.COLORS['water'])
     rivers = cf.NaturalEarthFeature('physical', 'rivers_lake_centerlines', scale=resolution, edgecolor='b', facecolor='none')
          
     ax.set_global()  
-    ax.add_feature(land, facecolor='grey', linestyle='-', linewidth=0.1, edgecolor='k', alpha=0.5)
-    ax.add_feature(ocean, facecolor='cyan', alpha=0.5)
+    ax.add_feature(land, facecolor='grey', linestyle='-', linewidth=0.1, edgecolor='k', alpha=1, zorder=1)
+    ax.add_feature(ocean, facecolor='cyan', alpha=1, zorder=1)
     # ax.add_feature(lakes)
     # ax.add_feature(rivers, linewidth=0.5)
-    ax.add_feature(borders, linestyle='-', linewidth=0.1, edgecolor='k', alpha=1)         
+    # ax.add_feature(borders, linestyle='-', linewidth=0.1, edgecolor='k', alpha=1, zorder=2)         
               
-    # gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=False, linewidth=1, color='lightgrey', alpha=1, linestyle='-')
-    # gl.top_labels = False; gl.bottom_labels = False; gl.left_ylabels = False; gl.right_ylabels = False
-    # gl.xlines = True; gl.ylines = True
-    # gl.xlocator = mticker.FixedLocator(np.linspace(-180,180,73)) # every 5 degrees
-    # gl.ylocator = mticker.FixedLocator(np.linspace(-90,90,37))   # every 5 degrees
-    # gl.xformatter = LONGITUDE_FORMATTER; gl.yformatter = LATITUDE_FORMATTER
-
-    g = v.plot(ax=ax, transform=ccrs.PlateCarree(), vmin=vmin, vmax=vmax, cmap=cmap, cbar_kwargs={'orientation':'horizontal','extend':'both','shrink':0.5, 'pad':0.05})             
+    g = v.plot(ax=ax, alpha=1, vmin=vmin, vmax=vmax, cmap=cmap, transform=ccrs.PlateCarree(), cbar_kwargs={'orientation':'horizontal','extend':'both','shrink':0.5, 'pad':0.05}, zorder=10)                 
     cb = g.colorbar; cb.ax.tick_params(labelsize=fontsize); cb.set_label(label=r'Anomaly,$^{\circ}$C', size=fontsize); cb.ax.set_title(None, fontsize=fontsize)
-    
-    h = plt.scatter(x=X, y=Y, c=Z, s=10, marker='o', edgecolor='k', lw=0.5, vmin=vmin, vmax=vmax, cmap=cmap, transform=ccrs.PlateCarree())         
   
-    ax.coastlines(resolution=resolution, color='k', linestyle='-', linewidth=0.2, edgecolor='k', alpha=1)                                                                                  
-    ax.add_feature(borders, linestyle='-', linewidth=0.1, edgecolor='k', alpha=1)         
-    ax.set_title(titlestr, fontsize=fontsize)    
-                                            
+    ax.coastlines(resolution=resolution, color='k', linestyle='-', linewidth=0.2, edgecolor='k', alpha=1, zorder=1000)                                                                                  
+    ax.add_feature(borders, linestyle='-', linewidth=0.1, edgecolor='k', alpha=1, zorder=1000)         
+
+    gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=False, linewidth=0.1, color='purple', alpha=1, linestyle='-', zorder=10000)
+    gl.top_labels = False; gl.bottom_labels = False; gl.left_ylabels = False; gl.right_ylabels = False
+    gl.xlines = True; gl.ylines = True
+    gl.xlocator = mticker.FixedLocator(np.linspace(-180,180,73)) # every 5 degrees
+    gl.ylocator = mticker.FixedLocator(np.linspace(-90,90,37))   # every 5 degrees
+    gl.xformatter = LONGITUDE_FORMATTER; gl.yformatter = LATITUDE_FORMATTER
+
+    h = plt.scatter(x=X, y=Y, c=Z, s=2, marker='o', edgecolor='k', lw=0.1, alpha=1, vmin=vmin, vmax=vmax, cmap=cmap, transform=ccrs.PlateCarree(), zorder=100000)         
+
+    ax.set_title(titlestr, fontsize=fontsize)                                                
     # fig.suptitle(titlestr, fontsize=36, color=default_color, fontweight='bold')        
-    plt.annotate(datastr1, xy=(350,100), xycoords='figure pixels', color=default_color, fontsize=10) 
-    plt.annotate(datastr2, xy=(350,80), xycoords='figure pixels', color=default_color, fontsize=10) 
-    plt.annotate(datastr3, xy=(350,60), xycoords='figure pixels', color=default_color, fontsize=10) 
-    plt.annotate(baselinestr, xy=(350,40), xycoords='figure pixels', color=default_color, fontsize=10)   
-    plt.annotate(authorstr, xy=(350,20), xycoords='figure pixels', color=default_color, fontsize=10)     
+
+    if dpi == 144: xstart = 333; ystart=10; ystep = 20
+    elif dpi == 300: xstart = 700; ystart=20; ystep = 40
+    elif dpi == 600: xstart = 1400; ystart=40; ystep = 80
+            
+    plt.annotate(datastr1, xy=(xstart,ystart+ystep*5), xycoords='figure pixels', color=default_color, fontsize=10) 
+    plt.annotate(datastr2, xy=(xstart,ystart+ystep*4), xycoords='figure pixels', color=default_color, fontsize=10) 
+    plt.annotate(datastr3, xy=(xstart,ystart+ystep*3), xycoords='figure pixels', color=default_color, fontsize=10) 
+    plt.annotate(baselinestr, xy=(xstart,ystart+ystep*2), xycoords='figure pixels', color=default_color, fontsize=10)   
+    plt.annotate(authorstr, xy=(xstart,ystart+ystep*1), xycoords='figure pixels', color=default_color, fontsize=10)     
     
     fig.subplots_adjust(left=None, bottom=None, right=None, top=None, wspace=None, hspace=None)
     plt.savefig(figstr, dpi=dpi, bbox_inches='tight')
@@ -405,25 +327,27 @@ for year in np.arange(year_start,year_end):
 
 t_vec = pd.date_range(start=str(year_start), end=str(year_end), freq='AS' )[0:-1]
 df_nao = pd.DataFrame({'nao':nao_vec}, index=t_vec)
-df_nao.to_pickle( 'df_nao_yearly_mean.pkl', compression='bz2' )
+df_nao.to_pickle( 'df_nao_yearly.pkl', compression='bz2' )
 
 # SAVE: SSIM yearly mean timeseries
     
 t_vec = pd.date_range(start=str(year_start), end=str(year_end), freq='AS' )[0:-1]
 df_ssim = pd.DataFrame({'ssim':ssim_vec}, index=t_vec)
-df_ssim.to_pickle( 'df_ssim_yearly_mean.pkl', compression='bz2' )
+df_ssim.to_pickle( 'df_ssim_yearly.pkl', compression='bz2' )
 
 # SAVE: COUNT yearly mean timeseries
     
 t_vec = pd.date_range(start=str(year_start), end=str(year_end), freq='AS' )[0:-1]
 df_count = pd.DataFrame({'count':n_vec}, index=t_vec)
-df_count.to_pickle( 'df_count_yearly_mean.pkl', compression='bz2' )
+df_count.to_pickle( 'df_count_yearly.pkl', compression='bz2' )
+
+'''
 
 #----------------------------------------------------------------------------
 # PLOT: SSIM & count timerseries
 #----------------------------------------------------------------------------
 
-# RESET: plot vars
+# RESET: plot vars & load Seaborn
 
 fontsize = 16
 import seaborn as sns; sns.set()
@@ -433,20 +357,14 @@ titlestr = 'GloSAT.analysis.alpha.4: SSIM(t-1,t) and Coverage(t) yearly mean'
                         
 fig, ax = plt.subplots(figsize=(15,10))     
 plt.plot( df_ssim.index, df_ssim.ssim, marker='o', ls='-', lw=0.5, color='blue')
-
 ax1 = plt.gca()
 ax2 = ax.twinx()
 ax2.plot( df_count.index, (1.0 - df_count['count']/2592), marker='o', ls='-', lw=0.5, color='red')
-#ax1.set_xlabel('Year', fontsize=fontsize)
 ax1.set_ylabel('SSIM(t-1,t)', fontsize=fontsize, color='blue')
-#ax1.yaxis.grid(False, which='major')      
-#ax1.xaxis.grid(False, which='major')      
 ax1.tick_params(labelsize=fontsize, color='blue')    
 ax2.spines['left'].set_color('blue')
 ax1.set_ylim(0,1)
 ax2.set_ylabel('1.0 - Coverage(t)', fontsize=fontsize, color='red')
-#ax1.yaxis.grid(False, which='major')      
-#ax1.xaxis.grid(False, which='major')      
 ax2.tick_params(labelsize=fontsize, colors='red')    
 ax2.spines['right'].set_color('red')
 ax2.set_ylim(0,1)
@@ -462,10 +380,6 @@ figstr = 'nao_yearly_mean.png'
 titlestr = 'Merged NAO: 1781-1820 (Juerg Luterbacher), 1821-2022 (Phil Jones): yearly mean'
                         
 fig, ax = plt.subplots(figsize=(15,10))     
-
-#plt.plot( df_nao[df_nao.index.year<1821].index, df_nao[df_nao.index.year<1821].nao, marker='o', ls='-', lw=0.5, color='red', label='NAO: 1781-1820 (Juerg Luterbacher)')
-#plt.plot( df_nao[df_nao.index.year>=1821].index, df_nao[df_nao.index.year>=1821].nao, marker='o', ls='-', lw=0.5, color='green', label='NAO: 1821-2022 (Phil Jones)')
-
 plt.fill_between( df_nao[df_nao.index.year<1821].index, df_nao[df_nao.index.year<1821].nao, ls='-', lw=0.5, color='red', label='NAO: 1781-1820 (Juerg Luterbacher)')
 plt.fill_between( df_nao[df_nao.index.year>=1821].index, df_nao[df_nao.index.year>=1821].nao, ls='-', lw=0.5, color='green', label='NAO: 1821-2022 (Phil Jones)')
 plt.ylim(-3,3)
@@ -477,4 +391,17 @@ plt.savefig(figstr, dpi=dpi, bbox_inches='tight')
 plt.close('all')
 
 # -----------------------------------------------------------------------------
+# Print library verions
+# -----------------------------------------------------------------------------
+print("numpy      : ", np.__version__) 
+print("pandas     : ", pd.__version__) 
+print("xarray     : ", xr.__version__)
+print("matplotlib : ", matplotlib.__version__)
+print("cartopy    : ", cartopy.__version__)
+print("seaborn    : ", sns.__version__)
+
+# -----------------------------------------------------------------------------
 print('** END')
+
+
+'''
