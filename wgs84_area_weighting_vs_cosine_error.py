@@ -1,10 +1,10 @@
 #! /usr/bin python
 
 #------------------------------------------------------------------------------
-# PROGRAM: crutem_gridded_2_pkl.py
+# PROGRAM: wgs84_area_weighting_vs_cosine_error.py
 #------------------------------------------------------------------------------
 # Version 0.1
-# 5 March, 2023
+# 21 February, 2023
 # Michael Taylor
 # michael DOT a DOT taylor AT uea DOT ac DOT uk 
 #------------------------------------------------------------------------------
@@ -19,6 +19,31 @@ import netCDF4
 
 # Statisticslibraries:
 from skimage.metrics import structural_similarity
+
+# Plotting libraries:
+import matplotlib
+#matplotlib.use('agg')
+import matplotlib.pyplot as plt; plt.close('all')
+import matplotlib.cm as cm
+from matplotlib import rcParams
+from matplotlib.cm import ScalarMappable
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from pandas.plotting import register_matplotlib_converters
+register_matplotlib_converters()
+import matplotlib.ticker as mticker
+import matplotlib.dates as mdates
+from matplotlib import colors as mcolors
+# %matplotlib inline # for Jupyter Notebooks
+
+import seaborn as sns; sns.set()
+
+# Silence library version notifications
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+warnings.filterwarnings("ignore", message="numpy.dtype size changed")
+warnings.filterwarnings("ignore", message="numpy.ufunc size changed")
 
 #----------------------------------------------------------------------------
 # SETTINGS
@@ -37,10 +62,9 @@ year_end = 2022
 latstep = 5
 lonstep = 5
 n_lat = int(180/latstep)
-n_lon = int(360/lonstep)  
+n_lon = int(360/lonstep)        
 
 sftof_nc = 'DATA/sftof.nc'
-crutem_nc = 'DATA/GloSAT.p04c.EBCv0.6.LEKnorms21Nov22_alternativegrid-178101-202112.nc'
 
 #----------------------------------------------------------------------------
 # METHODS
@@ -230,90 +254,83 @@ lat = np.arange( -90 + (latstep/2), 90 + (latstep/2), latstep )
 lon = np.arange( -180 + (lonstep/2), 180 + (lonstep/2), lonstep )
 zonal_lat_weight_array = array_to_xarray( lat, lon, zonal_lat_weight_array)
 
+'''
 #----------------------------------------------------------------------------
 # LOAD: CRUTEM alternative grid netCDF
 #----------------------------------------------------------------------------
 
-ds = xr.open_dataset( crutem_nc, decode_cf=True)
-par = ds.temperature_anomaly
- 
-#----------------------------------------------------------------------------
-# SET: time vector
-#----------------------------------------------------------------------------
+ds_crutem = xr.open_dataset( crutem_nc, decode_cf=True)
+par_crutem = ds_crutem.temperature_anomaly
+lon_crutem = ds_crutem.longitude
+lat_crutem = ds_crutem.latitude
+time_crutem = ds_crutem.time    
 
-t_vec = pd.date_range(start=str(year_start), end=str(year_end), freq='MS' )[0:-1]
+gmst_crutem_gridded = []
+gmst_crutem_gridded_cosine = []
+for k in range(par_crutem.shape[0]):
+    v_crutem = par_crutem[k,:,:]     
+    mask_crutem = np.isfinite( v_crutem )
+    masked_area = grid_cell_area.where(mask_crutem).sum(['latitude','longitude'])
+    masked_area_cosine = zonal_lat_weight_array.where(mask_crutem).sum(['latitude','longitude'])
+    gmst = ( ( v_crutem.where(mask_crutem) * grid_cell_area.where(mask_crutem) ).sum(['latitude','longitude']) / masked_area ).values + 0
+    gmst_cosine = ( ( v_crutem.where(mask_crutem) * zonal_lat_weight_array.where(mask_crutem) ).sum(['latitude','longitude']) / masked_area_cosine ).values + 0
+    gmst_crutem_gridded.append(gmst)
+    gmst_crutem_gridded_cosine.append(gmst_cosine)
 
-#----------------------------------------------------------------------------
-# INITIALISE: empty dec map for SSIM calculation
-#----------------------------------------------------------------------------
+df_gmst_crutem_gridded = pd.DataFrame({'gmst_global':gmst_crutem_gridded}, index=t_vec)
+df_gmst_crutem_gridded_cosine = pd.DataFrame({'gmst_global':gmst_crutem_gridded_cosine}, index=t_vec)
+'''
 
-dec_map = np.ones([ n_lat, n_lon ]) * np.nan # initialise zero map for SSIM crossing year boundary
+#==============================================================================
+# PLOTS
+#==============================================================================
 
-gmst_crutem_gridded_vec = []
-gmst_crutem_gridded_cosine_vec = []
-counts_crutem_gridded_vec = []
-ssim_crutem_gridded_vec = []
+#------------------------------------------------------------------------------
+# PLOT: zonal area-weights
+#------------------------------------------------------------------------------
 
-#----------------------------------------------------------------------------
-# COMPUTE: area-weighted GMST (CRUTEM gridded and cosine weighted)
-#----------------------------------------------------------------------------
+figstr = 'zonal-weighting-scheme.png'
+titlestr = 'Zonal weighting: for ' + str(1) + r'$^{\circ}$ and ' + str(latstep) + r'$^{\circ}$ bins with and without land and ocean fraction weighting'
+xstr = 'Weight'
+ystr = 'Latitude, °N'
 
-for k in range(par.shape[0]):
-
-    # COMPUTE: SSIM    
-
-    if k == 0:
-    
-        map1 = dec_map
-        map2 = np.array( par[k,:,:] )
-            
-    else:
-    
-        map1 = np.array( par[k-1,:,:] )
-        map2 = np.array( par[k,:,:] )
-    
-    # CATER: for first map having no prior map (December previous year) to correlate against
-    
-    if np.nansum(map1) == 0.0:    
-    
-        image1 = map1
-        image2 = np.nan_to_num(map2, copy=True, nan=0.0, posinf=None, neginf=None)
+fig, ax = plt.subplots(figsize=(15,10))          
+plt.fill_betweenx( x1=0, x2=zonal_lat_weight_per_degree * equatorial_weight, y=zone_bins_per_degree, color='white')
+plt.fill_betweenx( x1=0, x2=zonal_lat_ocean_weight_per_degree * equatorial_weight, y=zone_bins_per_degree, color='blue', alpha=0.2)
+plt.fill_betweenx( x1=0, x2=zonal_lat_land_weight_per_degree * equatorial_weight, y=zone_bins_per_degree, color='green', alpha=0.2)
+plt.plot( zonal_lat_weight_per_degree * equatorial_weight, zone_bins_per_degree, marker='o', markerfacecolor='white', ls='-', lw=0.5, color='black', label='Cos(latitude): ' + str(1) + r'$^{\circ}$' )
+plt.plot( zonal_lat_land_weight_per_degree * equatorial_weight, zone_bins_per_degree, marker='o', markerfacecolor='white', ls='-', lw=0.5, color='green', label='Cos(latitude) x land fraction: ' + str(1) + r'$^{\circ}$' )
+plt.plot( zonal_lat_land_weight * equatorial_weight, zone_bins, marker='.', ls='none', lw=0.5, color='green', label='Cos(latitude) x land fraction: ' + str(latstep) + r'$^{\circ}$' )
+plt.plot( zonal_lat_ocean_weight_per_degree * equatorial_weight, zone_bins_per_degree, marker='o', markerfacecolor='white', ls='-', lw=0.5, color='blue', label='Cos(latitude) x ocean fraction: ' + str(1) + r'$^{\circ}$' )
+plt.plot( zonal_lat_ocean_weight * equatorial_weight, zone_bins, marker='.', ls='none', lw=0.5, color='blue', label='Cos(latitude) x ocean fraction: ' + str(latstep) + r'$^{\circ}$' )
+plt.tick_params(labelsize=fontsize)    
+plt.legend(loc='lower right', ncol=1, fontsize=12)
+plt.xlabel(xstr, fontsize=fontsize)
+plt.ylabel(ystr, fontsize=fontsize)
+plt.title( titlestr, fontsize=fontsize)
+plt.savefig(figstr, dpi=300, bbox_inches='tight')
+plt.close(fig)
         
-    else:
-    
-        image1 = np.nan_to_num(map1, copy=True, nan=0.0, posinf=None, neginf=None)
-        image2 = np.nan_to_num(map2, copy=True, nan=0.0, posinf=None, neginf=None)
-            
-    ssim = structural_similarity(image1, image2)
+#------------------------------------------------------------------------------
+# PLOT: cosine error
+#------------------------------------------------------------------------------
 
-    # COMPUTE: GMST and extract count    
-    
-    v = par[k,:,:]     
-    mask = np.isfinite( v )
-    masked_area = grid_cell_area.where(mask).sum(['latitude','longitude'])
-    masked_area_cosine = zonal_lat_weight_array.where(mask).sum(['latitude','longitude'])
-    gmst = ( ( v.where(mask) * grid_cell_area.where(mask) ).sum(['latitude','longitude']) / masked_area ).values + 0
-    gmst_cosine = ( ( v.where(mask) * zonal_lat_weight_array.where(mask) ).sum(['latitude','longitude']) / masked_area_cosine ).values + 0
-    count = mask.sum().values + 0
+figstr = 'zonal-weighting-scheme-cosine_error.png'
+titlestr = 'Zonal weighting: cosine error'
+xstr = 'Weight'
+ystr = 'Latitude, °N'
 
-    gmst_crutem_gridded_vec.append( gmst )
-    gmst_crutem_gridded_cosine_vec.append( gmst_cosine )
-    counts_crutem_gridded_vec.append( count )
-    ssim_crutem_gridded_vec.append( ssim )
-
-df_gmst_crutem_gridded = pd.DataFrame({ 'gmst':gmst_crutem_gridded_vec }, index=t_vec)
-df_gmst_crutem_gridded_cosine = pd.DataFrame({ 'gmst':gmst_crutem_gridded_cosine_vec }, index=t_vec)
-df_count_crutem_gridded = pd.DataFrame({ 'count':counts_crutem_gridded_vec }, index=t_vec)
-df_ssim_crutem_gridded = pd.DataFrame({ 'ssim':ssim_crutem_gridded_vec }, index=t_vec)
-
-#----------------------------------------------------------------------------
-# SAVE: CRUTEM gridded and cosine GMST timeseries to .pkl
-#----------------------------------------------------------------------------
-
-df_gmst_crutem_gridded.to_pickle( 'df_gmst_crutem_gridded.pkl', compression='bz2' )
-df_gmst_crutem_gridded_cosine.to_pickle( 'df_gmst_crutem_gridded_cosine.pkl', compression='bz2' )
-df_count_crutem_gridded.to_pickle( 'df_count_crutem_gridded.pkl', compression='bz2' )
-df_ssim_crutem_gridded.to_pickle( 'df_ssim_crutem_gridded.pkl', compression='bz2' )
+fig, ax = plt.subplots(figsize=(15,10))          
+plt.fill_betweenx( x1=0, x2=zonal_lat_weight * equatorial_weight, y=zone_bins, color='white')
+plt.plot( zonal_lat_weight * equatorial_weight, zone_bins, marker='o', markerfacecolor='white', ls='-', lw=0.5, color='black', label='Cos(latitude): ' + str(latstep) + r'$^{\circ}$' )
+plt.plot(grid_cell_weights_total.values[:,0], zone_bins, marker='.', color='red', ls='none', label='Oblate sphere: ' + str(latstep) + r'$^{\circ}$' )
+plt.tick_params(labelsize=fontsize)    
+plt.legend(loc='lower right', ncol=1, fontsize=12)
+plt.xlabel(xstr, fontsize=fontsize)
+plt.ylabel(ystr, fontsize=fontsize)
+plt.title( titlestr, fontsize=fontsize)
+plt.savefig(figstr, dpi=300, bbox_inches='tight')
+plt.close(fig)
 
 # -----------------------------------------------------------------------------
 # Print library verions
@@ -322,6 +339,8 @@ df_ssim_crutem_gridded.to_pickle( 'df_ssim_crutem_gridded.pkl', compression='bz2
 print("numpy      : ", np.__version__) 
 print("pandas     : ", pd.__version__) 
 print("xarray     : ", xr.__version__)
+print("matplotlib : ", matplotlib.__version__)
+print("seaborn    : ", sns.__version__)
 
 # -----------------------------------------------------------------------------
 print('** END')
