@@ -13,34 +13,12 @@ import numpy as np
 import pandas as pd
 import pickle
 
-# Plotting libraries:
-import matplotlib
-#matplotlib.use('agg')
-import matplotlib.pyplot as plt; plt.close('all')
-import seaborn as sns; sns.set()
-
-# Silence library version notifications
-import warnings
-warnings.filterwarnings("ignore", category=DeprecationWarning)
-warnings.filterwarnings("ignore", category=UserWarning)
-warnings.filterwarnings("ignore", category=RuntimeWarning)
-warnings.filterwarnings("ignore", message="numpy.dtype size changed")
-warnings.filterwarnings("ignore", message="numpy.ufunc size changed")
-
-print("numpy      : ", np.__version__) 
-print("pandas     : ", pd.__version__) 
-print("matplotlib : ", matplotlib.__version__)
-print("seaborn    : ", sns.__version__) 
-
 #----------------------------------------------------------------------------
 # SETTINGS
 #----------------------------------------------------------------------------
 
-filename_nao1 = 'DATA/naomonjurg.dat' # Juerg Luterbacher reconstructed NAO 1658-1900
-filename_nao2 = 'DATA/nao.dat' # Phil Jones 1821-2022
-
-fontsize = 16
-dpi = 300
+filename_nao1 = 'DATA/nao/naomonjurg.dat' # Juerg Luterbacher reconstructed NAO 1658-1900
+filename_nao2 = 'DATA/nao/nao.dat' # Phil Jones 1821-2022
 
 #------------------------------------------------------------------------------    
 # LOAD: NAO indices
@@ -126,25 +104,15 @@ df_nao = pd.concat([df_nao1, df_nao2], ignore_index=False)
 
 # SAVE: NAO merged timeseries to pkl
 
-df_nao.to_pickle( 'df_nao_1781_2022.pkl', compression='bz2' )
+df_nao.to_pickle( 'df_nao.pkl', compression='bz2' )
+df_nao.to_csv( 'df_nao.csv' )
 
-#----------------------------------------------------------------------------
-# PLOT: NAO timerseries
-#----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# VERSIONING:
+# -----------------------------------------------------------------------------
 
-figstr = 'nao_yearly_mean.png'
-titlestr = 'Merged NAO: 1781-1820 (Juerg Luterbacher), 1821-2022 (Phil Jones): yearly mean'
-                        
-fig, ax = plt.subplots(figsize=(15,10))     
-plt.fill_between( df_nao[df_nao.index.year<1821].index, df_nao[df_nao.index.year<1821].nao, ls='-', lw=0.5, color='red', label='NAO: 1781-1820 (Juerg Luterbacher)')
-plt.fill_between( df_nao[df_nao.index.year>=1821].index, df_nao[df_nao.index.year>=1821].nao, ls='-', lw=0.5, color='green', label='NAO: 1821-2022 (Phil Jones)')
-plt.ylim(-7,7)
-plt.legend(loc='upper left', fontsize=fontsize)    
-plt.tick_params(labelsize=fontsize)    
-plt.ylabel('NAO(t)', fontsize=fontsize)
-plt.title(titlestr, fontsize=fontsize)
-plt.savefig(figstr, dpi=dpi, bbox_inches='tight')
-plt.close('all')
+print("numpy      : ", np.__version__) 
+print("pandas     : ", pd.__version__) 
 
 # -----------------------------------------------------------------------------
 print('** END')
