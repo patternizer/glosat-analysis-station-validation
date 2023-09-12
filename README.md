@@ -1,17 +1,27 @@
-![image](https://github.com/patternizer/glosat-analysis-station-validation/blob/main/tas_median_1848-07.png)
-![image](https://github.com/patternizer/glosat-analysis-station-validation/blob/main/nao_yearly_mean.png)
-![image](https://github.com/patternizer/glosat-analysis-station-validation/blob/main/ssim.png)
+![image](https://github.com/patternizer/glosat-analysis-station-validation/blob/main/tas_median_2018-03.png)
 
 # glosat-analysis-station-validation
 
-Comparison of monthly GloSAT in-filled 5x5 gridded analysis with station anomalies and NAO. Part of land surface air temperature data record validation efforts and ongoing work for the [GloSAT](https://www.glosat.org) project: www.glosat.org. 
+Comparison of monthly GloSAT in-filled 5x5 gridded HadCRUT-style analysis with station anomalies and the climate indicies NAO and SOI. Part of land surface air temperature station data record validation efforts and ongoing work for the [GloSAT](https://www.glosat.org) project: www.glosat.org. 
 
 ## Contents
 
-* `plot_glosat_analysis_vs_stations.py` - python script to read in the GloSAT.analysis.alpha.4 in-filled 5x5 gridded median netCDFs, the GloSAT.p04c.EBC.LEKnormals station anomalies, the Luterbacher et al reconstructed NAO (1658-1900), the Phil Jones NAO series (1821-2022), and plot the station monthly anomalies on the analysis background map. For each map, the structural similarity image (SSIM) index from Scipy is calculated as an indication of the monthly correlation between the analysis and its previous month.
-* `plot_glosat_analysis_vs_stations_yearly.py` - Yearly-averaged version of `plot_glosat_analysis_vs_stations.py`. NB: this is prone to error due to temporal coverage biasing the yearly mean. 
-* `nao-2-pkl.py` - Python reader to load Luterbacher and Jones monthly NAO indices and output to .pkl a merged timeseries from 1658-2022.
-* `make_gif.py` - Python function to generate an animated .gif of monthly map .png output files.
+* `merge_netcdfs.py` - Python helper to concatenate yearly HadCRUT5-style netcdf files.
+* `stations_to_gridded_netcdf.py` - Python reader to load in CRUTEM5 station archive and output raw gridded .nc.
+* `analysis_2_pkl.py` - Python reader to load gridded HadCRUT5-style analysis and output to .pkl. Used to provide gridded background for MAT and LAT overlays.
+* `mat_2_pkl.py` - Python reader to load gridded MAT and output to .pkl. Used to provide gridded MAT overlay.
+* `lat_2_pkl.py` - Python reader to load gridded LAT, area-average and output to .pkl. Used to provide gridded LAT overlay.
+* `nao_2_pkl.py` - Python reader to load Luterbacher and Jones monthly NAO indices and output to .pkl a merged timeseries from 1658-2022. Used to display monthly NAO value in each monthly comparison map.
+* `soi_2_pkl.py` - Python reader to load monthly SOI and output to .pkl. Used to display monthly SOI value in each monthly comparison map.
+* `aod_2_pkl.py` - Python reader to load volcanic AOD(550nm) and output to .pkl. Used to provide a perform large volcano detection (independent analysis for Emily Wallis).
+* `plot_glosat_analysis_vs_stations_vs_mat.py` - python script to read in the GloSAT.analysis.alpha.4 in-filled 5x5 gridded median netCDFs, the GloSAT.p04c.EBC.LEKnormals station anomalies, the gridded LAT, the gridded MAT and the merged NAO and SOI series, and plot a map for each month. 
+* `plot_glosat_stations_vs_gridded.py` - python script to read in the GloSAT stations and overlay on gridded LAT, and plot a map for each month. 
+* `crutem_2_pkl.py` - Python reader to load gridded CRUTEM5 and output area-weighted LAT to .pkl.
+* `crutem_gridded_2_pkl.py` - Python reader to load gridded CRUTEM5, mask to land and compute GMST (LAT) with various area-weighting schema, and output to .pkl. Used in area-weighted GMST comparisons.
+* `wgs84_area_weighting_vs_cosine_error.py` - Python research code to compare various area-averaging schema.
+* `make_contactsheet.py` - Python plotting function to generate a per calendar month contactsheet for a year of data.
+* `make_facetgrid.py` - Python plotting function to generate a small multiples plot of all momthly gridded CRUTEM5 maps.
+* `make_gif.py` - Python function to generate an animated .gif of monthly quadruple overlay maps.
 
 ## Instructions for use
 
@@ -26,13 +36,27 @@ Then create a DATA/ directory and copy to it the required datasets listed in plo
 
 The code is designed to run in an environment using Miniconda3-latest-Linux-x86_64.
 
-    $ python nao-2-pkl.py
-    $ python plot_glosat_analysis_vs_stations.py
-    $ python make_gif.py
+    $ python merge_netcdfs.py
+    $ python stations_to_gridded_netcdf.py
+    $ python crutem_2_pkl.py
+    $ python lat_2_pkl.py
+    $ python mat_2_pkl.py
+    $ python analysis_2_pkl.py
+    $ python nao_2_pkl.py
+    $ python soi_2_pkl.py
+    $ python plot_glosat_analysis_vs_stations_vs_mat.py
+    $ python plot_glosat_stations_vs_gridded.py (optional)    
+    $ python crutem_gridded_2_pkl.py (optional)
+    $ python aod_2_pkl.py (optional)
+    $ python wgs84_area_weighting_vs_cosine_error.py (optional)
+    $ python plot_stats.py (optional)
+    $ python plot_contactsheet.py (optional)
+    $ python plot_facetgrid.py (optional)
+    $ python make_gif.py (optional)
     
 ### A note on Cartopy and Conda environments
 
-Due to a Cartopy conflict with Matplotlib with GDAL installed, it is recommended that you work-around this by creating a new Conda environment and not installing GDAL for this code. Dependencies include: pandas, matplotlib, cartopy, scipy.
+Due to a Cartopy conflict with recent package versions of Matplotlib and GDAL, it is recommended that you work-around this by creating a new Conda environment and not install GDAL for this code. Dependencies: pandas, matplotlib, cartopy, scipy.
 
 ## License
 
